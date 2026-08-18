@@ -92,6 +92,9 @@ If the libraries are already installed, you can skip it.
 
 from pathlib import Path
 import json
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')  # Non-interactive backend for Render
 
 import joblib
 import numpy as np
@@ -113,20 +116,7 @@ RANDOM_STATE = 42
 pd.set_option("display.max_columns", 100)
 pd.set_option("display.width", 160)
 
-"""## 3. Import the tournament data directly from GitHub
-
-We use `raw.githubusercontent.com` URLs, so students do **not** have to manually download the CSV files.
-
-For this model we need:
-
-- `ball_context_features.csv` — leakage-safe pre-ball match state.
-- `innings_scoreboard.csv` — final innings score; this provides our target.
-- `matches.csv` — venue information.
-- `squad_selections.csv` — the XI selected for each team in each match.
-- `player_profiles.csv` — player ratings used to calculate XI strength.
-
-The notebook deliberately does **not** use the synthetic `scenario` column as a predictive feature. A real match will not tell us in advance whether it is a "normal", "fluke", or "underdog" game.
-"""
+# ... 3. Import the tournament data directly from GitHub ...
 
 REPO = "HimanshuKhale/Cricket_data_8_teams"
 BRANCH = "main"
@@ -153,7 +143,7 @@ profiles = github_csv(FILES["profiles"])
 
 print("\nLoaded successfully.")
 
-"""## 4. Inspect the imported datasets"""
+# ... 4. Inspect the imported datasets ...
 
 datasets = {
     "ball_context": ball,
@@ -166,37 +156,24 @@ datasets = {
 for name, df in datasets.items():
     print(f"{name:15s} -> rows={len(df):,}, columns={len(df.columns)}")
 
-print("ball_context_features.csv columns:")
-display(pd.DataFrame({"column": ball.columns}))
+print("\nball_context_features.csv columns:")
+print(pd.DataFrame({"column": ball.columns}).to_string())
 
-display(ball.head())
-display(scoreboard.head())
+print("\n=== ball.head() ===")
+print(ball.head().to_string())
 
-"""## 5. Validate that the required columns exist
+print("\n=== scoreboard.head() ===")
+print(scoreboard.head().to_string())
 
-Fail early if the repository schema changes.
-
-This is much better than silently training on the wrong dataset.
-"""
+# ... 5. Validate that the required columns exist ...
 
 required_ball_columns = {
-    "ball_event_id",
-    "match_id",
-    "innings_id",
-    "innings_number",
-    "batting_team_id",
-    "bowling_team_id",
-    "phase",
-    "score_before_ball",
-    "wickets_before_ball",
-    "legal_balls_before",
-    "target",
-    "current_run_rate_before",
-    "required_run_rate_before",
-    "pressure_index_before",
-    "batter_control_score_before",
-    "bowler_control_score_before",
-    "expected_runs_model",
+    "ball_event_id", "match_id", "innings_id", "innings_number",
+    "batting_team_id", "bowling_team_id", "phase", "score_before_ball",
+    "wickets_before_ball", "legal_balls_before", "target",
+    "current_run_rate_before", "required_run_rate_before",
+    "pressure_index_before", "batter_control_score_before",
+    "bowler_control_score_before", "expected_runs_model",
     "expected_wicket_probability_model",
 }
 
@@ -204,16 +181,9 @@ required_scoreboard_columns = {"innings_id", "runs"}
 required_match_columns = {"id", "venue"}
 required_selection_columns = {"match_id", "team_id", "player_id", "selected"}
 required_profile_columns = {
-    "player_id",
-    "team_id",
-    "batting_rating",
-    "bowling_rating",
-    "pressure_handling",
-    "consistency_rating",
-    "death_batting",
-    "line_length_accuracy",
-    "wicket_threat",
-    "death_bowling",
+    "player_id", "team_id", "batting_rating", "bowling_rating",
+    "pressure_handling", "consistency_rating", "death_batting",
+    "line_length_accuracy", "wicket_threat", "death_bowling",
 }
 
 checks = [
@@ -230,16 +200,7 @@ for filename, required, available in checks:
 
 print("Schema validation passed.")
 
-"""# Part A — Feature Engineering
-
-## 6. Calculate pre-match strength of each selected XI
-
-At prediction time we know who has been selected for the game.
-
-We therefore aggregate the selected XI's player-profile ratings into team-strength variables.
-
-These variables are **pre-match features**, so using them does not reveal the eventual innings result.
-"""
+# ... 6. Calculate pre-match strength of each selected XI ...
 
 if selections["selected"].dtype == object:
     selections["selected"] = (
@@ -277,29 +238,9 @@ xi_strength = (
 )
 
 print("Match-team XI strength rows:", len(xi_strength))
-display(xi_strength.head())
+print(xi_strength.head().to_string())
 
-
-
-"""## 7. Turn ball-by-ball data into innings snapshots
-
-If we used every delivery, one innings would create roughly 120 extremely similar rows.
-
-For teaching purposes we take **one snapshot at the beginning of each over**, from after 2 overs through after 18 overs.
-
-Example:
-
-```text
-2 overs completed  → one training example
-3 overs completed  → one training example
-...
-18 overs completed → one training example
-```
-
-This still gives many observations but makes the dataset easier to reason about.
-
-We also keep `innings_id` because it is essential for leakage-safe splitting.
-"""
+# ... 7. Turn ball-by-ball data into innings snapshots ...
 
 snapshots = ball.loc[
     (ball["legal_balls_before"] >= 12)
@@ -307,8 +248,6 @@ snapshots = ball.loc[
     & (ball["legal_balls_before"] % 6 == 0)
 ].copy()
 
-# Illegal deliveries can sometimes create repeated states with the same
-# number of legal balls. Keep the earliest event for each over boundary.
 snapshots = (
     snapshots
     .sort_values("ball_event_id")
@@ -318,12 +257,7 @@ snapshots = (
 print("Snapshot rows:", len(snapshots))
 print("Unique innings:", snapshots["innings_id"].nunique())
 
-"""## 8. Attach the target: final innings total
-
-`scoreboard["runs"]` is renamed to `final_innings_total`.
-
-That is the value the model will learn to predict.
-"""
+# ... 8. Attach the target: final innings total ...
 
 target_table = scoreboard[
     ["innings_id", "runs"]
@@ -338,19 +272,14 @@ snapshots = snapshots.merge(
 
 assert snapshots["final_innings_total"].notna().all()
 
-display(
-    snapshots[
-        [
-            "innings_id",
-            "legal_balls_before",
-            "score_before_ball",
-            "wickets_before_ball",
-            "final_innings_total",
-        ]
-    ].head(10)
-)
+print(snapshots[
+    [
+        "innings_id", "legal_balls_before", "score_before_ball",
+        "wickets_before_ball", "final_innings_total",
+    ]
+].head(10).to_string())
 
-"""## 9. Add venue and XI-strength features"""
+# ... 9. Add venue and XI-strength features ...
 
 snapshots = snapshots.merge(
     matches[["id", "venue"]].rename(columns={"id": "match_id"}),
@@ -396,42 +325,15 @@ snapshots = snapshots.merge(
 )
 
 print("Missing venue values:", snapshots["venue"].isna().sum())
-print(
-    "Missing batting XI rating:",
-    snapshots["bat_xi_batting_rating"].isna().sum(),
-)
-print(
-    "Missing bowling XI rating:",
-    snapshots["bowl_xi_bowling_rating"].isna().sum(),
-)
+print("Missing batting XI rating:", snapshots["bat_xi_batting_rating"].isna().sum())
+print("Missing bowling XI rating:", snapshots["bowl_xi_bowling_rating"].isna().sum())
 
-"""## 10. Create derived match-state features
-
-A model usually performs better when raw variables are turned into variables that express cricket meaning.
-
-Examples:
-
-\[
-BallsRemaining = 120 - LegalBallsBowled
-\]
-
-\[
-WicketsInHand = 10 - WicketsLost
-\]
-
-\[
-ProjectedScore = CurrentScore +
-CurrentRunRate 	times RemainingOvers
-\]
-
-These are engineered features, not targets.
-"""
+# ... 10. Create derived match-state features ...
 
 snapshots["balls_remaining"] = 120 - snapshots["legal_balls_before"]
 snapshots["overs_completed"] = snapshots["legal_balls_before"] / 6
 snapshots["wickets_in_hand"] = 10 - snapshots["wickets_before_ball"]
 
-# First innings has no chase target.
 snapshots["target_filled"] = snapshots["target"].fillna(0)
 snapshots["required_run_rate_filled"] = (
     snapshots["required_run_rate_before"].fillna(0)
@@ -452,82 +354,31 @@ snapshots["projected_score_current_rr"] = (
     * (snapshots["balls_remaining"] / 6)
 )
 
-display(
-    snapshots[
-        [
-            "score_before_ball",
-            "legal_balls_before",
-            "balls_remaining",
-            "wickets_in_hand",
-            "current_run_rate_before",
-            "projected_score_current_rr",
-            "final_innings_total",
-        ]
-    ].head()
-)
+print(snapshots[
+    [
+        "score_before_ball", "legal_balls_before", "balls_remaining",
+        "wickets_in_hand", "current_run_rate_before",
+        "projected_score_current_rr", "final_innings_total",
+    ]
+].head().to_string())
 
-"""# Part B — Define `X` and `y`
-
-## 11. Select model features
-
-### Numerical state features
-These describe score, wickets, time remaining, pressure, control, expected runs and XI quality.
-
-### Categorical features
-- `phase`
-- `venue`
-
-### Intentionally excluded
-We do **not** use:
-
-- `target_total_runs_this_ball`
-- `runs_off_bat_this_ball`
-- future balls
-- final wickets
-- final run rate
-- synthetic `scenario`
-- `final_innings_total` itself
-
-Those would create leakage or unrealistic production behavior.
-"""
+# ... 11. Select model features ...
 
 numeric_features = [
-    "innings_number",
-    "score_before_ball",
-    "wickets_before_ball",
-    "legal_balls_before",
-    "balls_remaining",
-    "overs_completed",
-    "wickets_in_hand",
-    "current_run_rate_before",
-    "target_filled",
-    "required_run_rate_filled",
-    "runs_required",
-    "pressure_index_before",
-    "batter_control_score_before",
-    "bowler_control_score_before",
-    "expected_runs_model",
-    "expected_wicket_probability_model",
+    "innings_number", "score_before_ball", "wickets_before_ball",
+    "legal_balls_before", "balls_remaining", "overs_completed",
+    "wickets_in_hand", "current_run_rate_before", "target_filled",
+    "required_run_rate_filled", "runs_required", "pressure_index_before",
+    "batter_control_score_before", "bowler_control_score_before",
+    "expected_runs_model", "expected_wicket_probability_model",
     "projected_score_current_rr",
-
-    # Batting XI strength
-    "bat_xi_batting_rating",
-    "bat_xi_pressure_handling",
-    "bat_xi_consistency",
-    "bat_xi_death_batting",
-
-    # Bowling XI strength
-    "bowl_xi_bowling_rating",
-    "bowl_xi_line_length_accuracy",
-    "bowl_xi_wicket_threat",
-    "bowl_xi_death_bowling",
+    "bat_xi_batting_rating", "bat_xi_pressure_handling",
+    "bat_xi_consistency", "bat_xi_death_batting",
+    "bowl_xi_bowling_rating", "bowl_xi_line_length_accuracy",
+    "bowl_xi_wicket_threat", "bowl_xi_death_bowling",
 ]
 
-categorical_features = [
-    "phase",
-    "venue",
-]
-
+categorical_features = ["phase", "venue"]
 feature_columns = numeric_features + categorical_features
 
 X = snapshots[feature_columns].copy()
@@ -539,48 +390,28 @@ print("y shape:", y.shape)
 print("Unique innings:", groups.nunique())
 
 leakage_columns = {
-    "final_innings_total",
-    "target_total_runs_this_ball",
-    "runs_off_bat_this_ball",
-    "extras_this_ball",
-    "scenario",
+    "final_innings_total", "target_total_runs_this_ball",
+    "runs_off_bat_this_ball", "extras_this_ball", "scenario",
 }
 
 assert leakage_columns.isdisjoint(feature_columns)
-
 print("Leakage guard passed.")
 
-"""## 12. Look at the target distribution"""
+# ... 12. Look at the target distribution ...
 
-display(y.describe())
+print("\n=== Target Distribution ===")
+print(y.describe())
 
 plt.figure(figsize=(8, 5))
 plt.hist(y, bins=20)
 plt.xlabel("Final innings total")
 plt.ylabel("Number of snapshots")
 plt.title("Distribution of Final Innings Totals")
-plt.show()
+plt.savefig("01_target_distribution.png", dpi=100, bbox_inches='tight')
+plt.close()
+print("Saved: 01_target_distribution.png")
 
-"""# Part C — Train/Test Design
-
-## 13. Why we split by innings, not by row
-
-Suppose the same innings gives us:
-
-```text
-6 overs  → 62/1
-7 overs  → 71/1
-8 overs  → 80/2
-```
-
-If 6-over and 7-over rows go into training while the 8-over row goes into test data, the test is not genuinely unseen.
-
-Therefore:
-
-> **Every snapshot belonging to one innings must stay entirely in either training or testing.**
-
-We use `GroupShuffleSplit` with `innings_id` as the group.
-"""
+# ... 13. Train/test split by innings ...
 
 splitter = GroupShuffleSplit(
     n_splits=1,
@@ -603,29 +434,12 @@ groups_test = groups.iloc[test_idx].copy()
 
 assert set(groups_train).isdisjoint(set(groups_test))
 
-print("Training rows:", len(X_train))
+print("\nTraining rows:", len(X_train))
 print("Testing rows:", len(X_test))
 print("Training innings:", groups_train.nunique())
 print("Testing innings:", groups_test.nunique())
 
-"""# Part D — Build a Cricket Baseline
-
-## 14. Baseline: assume the current scoring rate continues
-
-Before training ML, ask:
-
-> Can the model beat a simple cricket rule?
-
-Baseline:
-
-\[
-PredictedTotal =
-CurrentScore +
-CurrentRunRate 	times RemainingOvers
-\]
-
-A useful ML model should improve meaningfully on this.
-"""
+# ... 14. Baseline: current run rate ...
 
 baseline_predictions = X_test[
     "projected_score_current_rr"
@@ -654,44 +468,10 @@ baseline_metrics = pd.DataFrame(
     ]
 )
 
-display(baseline_metrics.round(3))
+print("\n=== Baseline Metrics ===")
+print(baseline_metrics.round(3).to_string())
 
-"""96
-112
-141
-158
-176
-201
-244
-
-# Part E — Preprocessing Pipeline
-
-## 15. Why use a scikit-learn Pipeline?
-
-The final `.pkl` should contain not only the regression algorithm but also the transformations required before prediction.
-
-That way:
-
-```text
-API JSON
-   ↓
-same preprocessing used during training
-   ↓
-trained model
-   ↓
-prediction
-```
-
-### Numeric features
-- Missing values → median
-- Standard scaling
-
-### Categorical features
-- Missing values → most frequent value
-- One-hot encoding
-
-The complete preprocessing + model pipeline will be serialized together.
-"""
+# ... 15. Preprocessing Pipeline ...
 
 numeric_pipeline = Pipeline(
     steps=[
@@ -726,23 +506,7 @@ preprocessor = ColumnTransformer(
 
 print("Preprocessing pipeline created.")
 
-"""# Part F — Train Multiple Regression Models
-
-## 16. Candidate algorithms
-
-We compare three different approaches:
-
-### Linear Regression
-A simple, interpretable baseline ML algorithm.
-
-### Random Forest Regressor
-Builds many decision trees and averages their predictions.
-
-### Gradient Boosting Regressor
-Builds trees sequentially, with later trees learning to correct earlier errors.
-
-We choose the winner using **grouped cross-validation MAE**, not by looking at the test set.
-"""
+# ... 16. Candidate algorithms ...
 
 candidate_models = {
     "Linear Regression": LinearRegression(),
@@ -764,9 +528,7 @@ candidate_models = {
     ),
 }
 
-candidate_models
-
-"""## 17. Five-fold grouped cross-validation"""
+# ... 17. Five-fold grouped cross-validation ...
 
 group_cv = GroupKFold(n_splits=5)
 
@@ -808,24 +570,17 @@ cv_results = (
     .reset_index(drop=True)
 )
 
-display(cv_results.round(3))
+print("\n=== Cross-Validation Results ===")
+print(cv_results.round(3).to_string())
 
-"""## 18. Select the model using cross-validation
-
-**Lower MAE is better.**
-
-The held-out test set has still not been used to choose the winner.
-"""
+# ... 18. Select the model using cross-validation ...
 
 best_model_name = cv_results.iloc[0]["model"]
 best_model = trained_models[best_model_name]
 
-print("Selected model:", best_model_name)
+print("\nSelected model:", best_model_name)
 
-"""# Part G — Final Evaluation
-
-## 19. Evaluate the selected model on unseen innings
-"""
+# ... 19. Evaluate the selected model on unseen innings ...
 
 test_predictions = best_model.predict(X_test)
 
@@ -852,40 +607,10 @@ comparison = pd.DataFrame(
     ]
 )
 
-display(comparison.round(3))
+print("\n=== Test Set Evaluation ===")
+print(comparison.round(3).to_string())
 
-"""### How to read the metrics
-
-#### MAE — Mean Absolute Error
-
-If:
-
-```text
-MAE = 27
-```
-
-then predictions are, on average, about **27 runs away** from the actual final total.
-
-Lower is better.
-
-#### RMSE — Root Mean Squared Error
-
-Like MAE, but large mistakes are punished more strongly.
-
-Lower is better.
-
-#### R²
-
-Measures how much variation in final innings totals is explained by the model.
-
-```text
-R² = 1.0  → perfect
-R² = 0.0  → no better than predicting the mean
-R² < 0    → worse than the mean baseline
-```
-
-## 20. Actual vs predicted
-"""
+# ... 20. Actual vs predicted ...
 
 plt.figure(figsize=(7, 6))
 plt.scatter(y_test, test_predictions, alpha=0.6)
@@ -897,9 +622,11 @@ plt.plot([low, high], [low, high], linestyle="--")
 plt.xlabel("Actual final innings total")
 plt.ylabel("Predicted final innings total")
 plt.title(f"Actual vs Predicted — {best_model_name}")
-plt.show()
+plt.savefig("02_actual_vs_predicted.png", dpi=100, bbox_inches='tight')
+plt.close()
+print("Saved: 02_actual_vs_predicted.png")
 
-"""## 21. Residual errors"""
+# ... 21. Residual errors ...
 
 residuals = y_test.to_numpy() - test_predictions
 
@@ -908,14 +635,11 @@ plt.hist(residuals, bins=20)
 plt.xlabel("Actual - Predicted")
 plt.ylabel("Frequency")
 plt.title("Prediction Error Distribution")
-plt.show()
+plt.savefig("03_residuals.png", dpi=100, bbox_inches='tight')
+plt.close()
+print("Saved: 03_residuals.png")
 
-"""## 22. Error by stage of innings
-
-An innings-total model should become more accurate as more of the innings has already been observed.
-
-Let's test that.
-"""
+# ... 22. Error by stage of innings ...
 
 error_analysis = X_test[
     ["overs_completed", "score_before_ball"]
@@ -937,7 +661,8 @@ error_by_over = (
     )
 )
 
-display(error_by_over.round(2))
+print("\n=== Error by Innings Stage ===")
+print(error_by_over.round(2).to_string())
 
 plt.figure(figsize=(8, 5))
 plt.plot(
@@ -948,20 +673,11 @@ plt.plot(
 plt.xlabel("Overs completed")
 plt.ylabel("Mean absolute error")
 plt.title("Model Error by Innings Stage")
-plt.show()
+plt.savefig("04_error_by_stage.png", dpi=100, bbox_inches='tight')
+plt.close()
+print("Saved: 04_error_by_stage.png")
 
-"""# Part H — Understand the Model
-
-## 23. Permutation feature importance
-
-Permutation importance asks:
-
-> If I randomly scramble this feature, how much worse does the model become?
-
-Large performance deterioration means that feature was important.
-
-This method works regardless of whether the selected algorithm is linear regression, random forest, or gradient boosting.
-"""
+# ... 23. Permutation feature importance ...
 
 importance = permutation_importance(
     best_model,
@@ -984,7 +700,8 @@ feature_importance = (
     .head(15)
 )
 
-display(feature_importance.round(4))
+print("\n=== Top 15 Features by Importance ===")
+print(feature_importance.round(4).to_string())
 
 plot_df = feature_importance.sort_values("importance")
 
@@ -992,42 +709,11 @@ plt.figure(figsize=(9, 6))
 plt.barh(plot_df["feature"], plot_df["importance"])
 plt.xlabel("Permutation importance")
 plt.title("Top 15 Features")
-plt.show()
+plt.savefig("05_feature_importance.png", dpi=100, bbox_inches='tight')
+plt.close()
+print("Saved: 05_feature_importance.png")
 
-"""# Part I — Export the Model
-
-## 24. Why save a `.pkl`?
-
-Training happens offline:
-
-```text
-GitHub CSVs
-    ↓
-Feature engineering
-    ↓
-Model training
-    ↓
-Evaluation
-    ↓
-model.pkl
-```
-
-Production prediction happens online:
-
-```text
-API request
-    ↓
-load model.pkl
-    ↓
-model.predict(...)
-    ↓
-API response
-```
-
-**We do not retrain the model every time an API request arrives.**
-
-The artifact below stores the entire preprocessing pipeline and regression model together.
-"""
+# ... 24. Export the model ...
 
 MODEL_FILE = "innings_total_prediction_model.pkl"
 
@@ -1054,28 +740,22 @@ artifact = {
 
 joblib.dump(artifact, MODEL_FILE)
 
-print(f"Saved: {MODEL_FILE}")
+print(f"\nSaved: {MODEL_FILE}")
 print("Size:", Path(MODEL_FILE).stat().st_size, "bytes")
 
-"""> **Security note:** A pickle/joblib file can execute Python objects while loading. Only load `.pkl` files that you created yourself or obtained from a trusted source.
-
-## 25. Reload the `.pkl` exactly as an API would
-"""
+# ... 25. Reload the `.pkl` exactly as an API would ...
 
 loaded_artifact = joblib.load(MODEL_FILE)
 
 loaded_model = loaded_artifact["model"]
 loaded_features = loaded_artifact["feature_columns"]
 
-print("Model:", loaded_artifact["model_name"])
+print("\nModel:", loaded_artifact["model_name"])
 print("Version:", loaded_artifact["version"])
 print("Target:", loaded_artifact["target"])
 print("Number of features:", len(loaded_features))
 
-"""## 26. Make a prediction from the reloaded model
-
-We take one unseen test snapshot and pretend it has arrived from an API.
-"""
+# ... 26. Make a prediction from the reloaded model ...
 
 sample = X_test.iloc[[0]].copy()
 actual = float(y_test.iloc[0])
@@ -1084,149 +764,16 @@ raw_prediction = float(
     loaded_model.predict(sample[loaded_features])[0]
 )
 
-# Cricket sanity rule: a final score cannot be lower
-# than the score already achieved.
 prediction = max(
     raw_prediction,
     float(sample.iloc[0]["score_before_ball"]),
 )
 
+print("\n=== Example Prediction ===")
 print("Current score:", sample.iloc[0]["score_before_ball"])
 print("Overs completed:", sample.iloc[0]["overs_completed"])
 print("Wickets lost:", sample.iloc[0]["wickets_before_ball"])
 print("Predicted final total:", round(prediction))
 print("Actual final total:", round(actual))
 
-"""# Part J — Convert the Model into an API
-
-The machine-learning work is now finished.
-
-The API does **not** train the model.
-
-It only:
-
-1. receives a match-state request,
-2. derives the same features,
-3. loads the `.pkl`,
-4. calls `predict()`,
-5. returns JSON.
-
-Conceptually:
-
-```text
-POST /predict/innings-total
-
-JSON
-  ↓
-Pydantic validation
-  ↓
-Feature construction
-  ↓
-model.pkl
-  ↓
-Prediction
-  ↓
-JSON response
-```
-
-## 27. Example API request
-
-A future FastAPI endpoint can accept something like:
-
-```json
-{
-  "innings_number": 1,
-  "score_before_ball": 92,
-  "wickets_before_ball": 3,
-  "legal_balls_before": 66,
-  "current_run_rate_before": 8.36,
-  "target": null,
-  "required_run_rate_before": null,
-
-  "pressure_index_before": 0.41,
-  "batter_control_score_before": 0.76,
-  "bowler_control_score_before": 0.69,
-  "expected_runs_model": 1.28,
-  "expected_wicket_probability_model": 0.052,
-
-  "phase": "middle",
-  "venue": "Emerald Ground, Indore",
-
-  "bat_xi_batting_rating": 69.4,
-  "bat_xi_pressure_handling": 71.2,
-  "bat_xi_consistency": 68.7,
-  "bat_xi_death_batting": 72.6,
-
-  "bowl_xi_bowling_rating": 66.8,
-  "bowl_xi_line_length_accuracy": 70.1,
-  "bowl_xi_wicket_threat": 67.3,
-  "bowl_xi_death_bowling": 69.5
-}
-```
-
-Possible response:
-
-```json
-{
-  "predicted_final_total": 174,
-  "current_score": 92,
-  "additional_runs_expected": 82,
-  "model": "Gradient Boosting",
-  "model_version": "1.0.0"
-}
-```
-
-# Part K — Student Discussion Questions
-
-Before moving to the API sprint, students should be able to answer:
-
-1. What exactly is one observation in this training dataset?
-2. What is `X`?
-3. What is `y`?
-4. Why is innings total prediction a regression problem?
-5. Why did we create snapshots instead of using only one row per match?
-6. Why must all rows from one innings stay in the same train/test partition?
-7. What would happen if `final_innings_total` accidentally appeared in `X`?
-8. Why do we compare the model against a current-run-rate baseline?
-9. What is the difference between an algorithm and a trained model?
-10. Why do we save preprocessing and the model in the same pipeline?
-11. What does MAE mean in cricket terms?
-12. Why should `scenario` not be a model input?
-13. What information must the prediction API receive?
-14. Why should an API call `predict()` but never `fit()`?
-15. What new real-world data would you want before trusting this model outside the synthetic tournament?
-
----
-
-## Final architecture
-
-```text
-Khel AI Tournament Data
-        ↓
-GitHub CSV files
-        ↓
-Leakage-safe innings snapshots
-        ↓
-Feature engineering
-        ↓
-Group-based train/test split
-        ↓
-Linear Regression
-Random Forest
-Gradient Boosting
-        ↓
-Grouped cross-validation
-        ↓
-Best model
-        ↓
-Test evaluation
-        ↓
-innings_total_prediction_model.pkl
-        ↓
-FastAPI / Django prediction service
-        ↓
-Khel AI dashboard / AI agent
-```
-
-This is the complete offline-training lifecycle for the first Sprint 3 prediction model.
-"""
+print("\n✓ Script completed successfully!")
